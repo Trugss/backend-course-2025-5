@@ -24,13 +24,53 @@ async function ensureCacheDir() {
   }
 }
 
+async function handleRequest(req, res) {
+  const code = req.url.slice(1); 
+  const filePath = path.join(cache_dir, `${code}.jpg`);
+
+  if (!/^\d+$/.test(code)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return res.end('Bad Request: очікується числовий HTTP-код у шляху URL');
+  }
+
+  try {
+    if (req.method === 'GET') {
+      const data = await fsPromises.readFile(filePath);
+      res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+      res.end(data);
+
+    } else if (req.method === 'PUT') {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const buffer = Buffer.concat(chunks);
+
+      await fsPromises.writeFile(filePath, buffer);
+      res.writeHead(201, { 'Content-Type': 'text/plain' });
+      res.end('Created');
+
+    } else if (req.method === 'DELETE') {
+      await fsPromises.unlink(filePath);
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('Deleted');
+
+    } else {
+      res.writeHead(405, { 'Content-Type': 'text/plain' });
+      res.end('Method Not Allowed');
+    }
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    } else {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('Internal Server Error');
+    }
+  }
+}
+
 async function startServer() {
   await ensureCacheDir();
-
-  const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Проксі сервер запущено.');
-  });
+  const server = http.createServer(handleRequest);	
 
   server.listen(port, host, () => {
     console.log(`Сервер запущено на http://${host}:${port}`);
