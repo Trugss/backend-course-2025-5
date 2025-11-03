@@ -3,9 +3,10 @@ const fs = require('fs');
 const fsPromises = fs.promises;
 const path = require('path');
 const { program } = require('commander');
+const superagent = require('superagent');
 
 program
-  .requiredOption('-h, --host <host>', 'адреса')
+  .requiredOption('-H, --host <host>', 'адреса')
   .requiredOption('-p, --port <port>', 'порт', parseInt)
   .requiredOption('-c, --cache <path>', 'шлях до директорії кешу');
 program.parse(process.argv);
@@ -25,7 +26,7 @@ async function ensureCacheDir() {
 }
 
 async function handleRequest(req, res) {
-  const code = req.url.slice(1); 
+  const code = req.url.slice(1);
   const filePath = path.join(cache_dir, `${code}.jpg`);
 
   if (!/^\d+$/.test(code)) {
@@ -35,9 +36,24 @@ async function handleRequest(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const data = await fsPromises.readFile(filePath);
-      res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-      res.end(data);
+      try {
+        const data = await fsPromises.readFile(filePath);
+        res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+        res.end(data);
+      } catch {
+        console.log(`Кеш не знайдено для ${code}, отримую з http.cat...`);
+        try {
+          const response = await superagent.get(`https://http.cat/${code}`).buffer(true);
+          const imageBuffer = response.body;
+
+          await fsPromises.writeFile(filePath, imageBuffer);
+          res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+          res.end(imageBuffer);
+        } catch {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Не знайдено на http.cat');
+        }
+      }
 
     } else if (req.method === 'PUT') {
       const chunks = [];
@@ -70,7 +86,7 @@ async function handleRequest(req, res) {
 
 async function startServer() {
   await ensureCacheDir();
-  const server = http.createServer(handleRequest);	
+  const server = http.createServer(handleRequest);
 
   server.listen(port, host, () => {
     console.log(`Сервер запущено на http://${host}:${port}`);
